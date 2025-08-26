@@ -1,6 +1,6 @@
 //! Simple prototype for validating NACM (RFC 8341) rules in Rust.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// NACM Rule effect (permit or deny)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
