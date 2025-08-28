@@ -356,17 +356,19 @@ fn handle_single_request(config: &NacmConfig, cli: &Cli, user: &str, operation: 
         rpc_name: cli.rpc.as_deref(),
         operation,
         path: cli.path.as_deref(),
+        context: None, // For CLI tool, we don't specify context unless needed
+        command: None, // This is for data access, not command access
     };
 
     // Perform the actual NACM validation using our library
     let result = config.validate(&request);
     
     // Output results in the requested format
-    output_result(&result, &request, config, &cli.format, cli.verbose);
+    output_result(&result.effect, &request, config, &cli.format, cli.verbose);
     
     // Set exit code based on access decision
     // This is crucial for shell script integration
-    match result {
+    match result.effect {
         RuleEffect::Permit => process::exit(0),  // Success: access granted
         RuleEffect::Deny => process::exit(1),    // Failure: access denied
     }
@@ -431,6 +433,8 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
                             rpc_name: json_req.rpc.as_deref(),
                             operation,
                             path: json_req.path.as_deref(),
+                            context: None, // JSON requests don't specify context
+                            command: None, // This is for data access validation
                         };
 
                         // Validate the request using NACM
@@ -438,7 +442,7 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
                         
                         // Build JSON response with complete traceability
                         let json_result = JsonResult {
-                            decision: match result {
+                            decision: match result.effect {
                                 RuleEffect::Permit => "permit".to_string(),
                                 RuleEffect::Deny => "deny".to_string(),
                             },

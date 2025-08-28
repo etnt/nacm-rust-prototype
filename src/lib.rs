@@ -10,7 +10,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation};
+//! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext};
 //!
 //! // Load configuration from XML
 //! let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -39,17 +39,22 @@
 //! let config = NacmConfig::from_xml(&xml_content)?;
 //!
 //! // Create an access request
+//! let context = RequestContext::NETCONF;
 //! let request = AccessRequest {
 //!     user: "alice",
 //!     module_name: Some("ietf-interfaces"),
 //!     rpc_name: None,
 //!     operation: Operation::Read,
 //!     path: Some("/interfaces"),
+//!     context: Some(&context),
+//!     command: None,
 //! };
 //!
 //! // Validate the request
 //! let result = config.validate(&request);
-//! println!("Access result: {:?}", result); // RuleEffect::Permit or RuleEffect::Deny
+//! println!("Access {}: {}", 
+//!          if result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMIT" } else { "DENY" },
+//!          if result.should_log { "[LOGGED]" } else { "" });
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -79,6 +84,36 @@ pub enum RuleEffect {
     Permit,
     /// Deny the requested access
     Deny,
+}
+
+/// Access control validation result with logging indication
+/// 
+/// This structure contains both the access control decision and whether
+/// the decision should be logged according to the configured logging rules.
+/// This supports the Tail-f ACM extensions that provide fine-grained control
+/// over access control logging.
+/// 
+/// # Examples
+/// 
+/// ```
+/// use nacm_rust_prototype::{ValidationResult, RuleEffect};
+/// 
+/// let result = ValidationResult {
+///     effect: RuleEffect::Permit,
+///     should_log: true,
+/// };
+/// 
+/// if result.should_log {
+///     println!("Access {}: should be logged", 
+///              if result.effect == RuleEffect::Permit { "permitted" } else { "denied" });
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidationResult {
+    /// The access control decision
+    pub effect: RuleEffect,
+    /// Whether this decision should be logged
+    pub should_log: bool,
 }
 
 /// Implementation of `FromStr` trait for `RuleEffect`
@@ -127,6 +162,59 @@ pub enum Operation {
     Exec,
 }
 
+/// Request context enumeration
+/// 
+/// Represents the different management interfaces or contexts from which
+/// an access request originates. This is part of the Tail-f ACM extensions
+/// that enable context-specific access control rules.
+/// 
+/// # Examples
+/// 
+/// ```
+/// use nacm_rust_prototype::RequestContext;
+/// 
+/// let cli_context = RequestContext::CLI;
+/// let netconf_context = RequestContext::NETCONF;
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RequestContext {
+    /// NETCONF protocol access
+    NETCONF,
+    /// Command-line interface access
+    CLI,
+    /// Web-based user interface access
+    WebUI,
+    /// Other/custom interface
+    Other(String),
+}
+
+impl RequestContext {
+    /// Check if this context matches a pattern
+    /// 
+    /// Supports wildcard matching where "*" matches any context.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `pattern` - The pattern to match against (e.g., "cli", "*", "webui")
+    /// 
+    /// # Returns
+    /// 
+    /// * `true` if the context matches the pattern
+    /// * `false` otherwise
+    pub fn matches(&self, pattern: &str) -> bool {
+        if pattern == "*" {
+            return true;
+        }
+        
+        match self {
+            RequestContext::NETCONF => pattern.eq_ignore_ascii_case("netconf"),
+            RequestContext::CLI => pattern.eq_ignore_ascii_case("cli"),
+            RequestContext::WebUI => pattern.eq_ignore_ascii_case("webui"),
+            RequestContext::Other(name) => pattern.eq_ignore_ascii_case(name),
+        }
+    }
+}
+
 /// Implementation of `FromStr` trait for `Operation`
 /// 
 /// Enables parsing operations from strings, used in CLI and XML parsing.
@@ -163,6 +251,9 @@ impl std::str::FromStr for Operation {
 /// * `access_operations` - Set of operations this rule covers
 /// * `effect` - Whether to permit or deny matching requests
 /// * `order` - Rule precedence (lower = higher priority)
+/// * `context` - Request context this rule applies to (Tail-f extension)
+/// * `log_if_permit` - Log when this rule permits access (Tail-f extension)
+/// * `log_if_deny` - Log when this rule denies access (Tail-f extension)
 /// 
 /// # Examples
 /// 
@@ -181,6 +272,9 @@ impl std::str::FromStr for Operation {
 ///     access_operations: ops,
 ///     effect: RuleEffect::Permit,
 ///     order: 10,
+///     context: None,
+///     log_if_permit: false,
+///     log_if_deny: false,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -199,6 +293,74 @@ pub struct NacmRule {
     pub effect: RuleEffect,
     /// Rule precedence - lower numbers have higher priority
     pub order: u32,
+    /// Request context pattern this rule applies to (Tail-f extension)
+    pub context: Option<String>,
+    /// Log when this rule permits access (Tail-f extension)
+    pub log_if_permit: bool,
+    /// Log when this rule denies access (Tail-f extension)
+    pub log_if_deny: bool,
+}
+
+/// NACM Command Rule structure (Tail-f ACM extension)
+/// 
+/// Represents a command-based access control rule for CLI and Web UI operations.
+/// Command rules complement standard NACM data access rules by controlling
+/// access to management commands that don't map to NETCONF operations.
+/// 
+/// # Fields
+/// 
+/// * `name` - Human-readable identifier for the command rule
+/// * `context` - Management interface pattern (e.g., "cli", "webui", "*")
+/// * `command` - Command pattern to match (supports wildcards)
+/// * `access_operations` - Set of command operations (read, exec)
+/// * `effect` - Whether to permit or deny matching command requests
+/// * `order` - Rule precedence within the rule list
+/// * `log_if_permit` - Log when this rule permits access
+/// * `log_if_deny` - Log when this rule denies access
+/// * `comment` - Optional description of the rule
+/// 
+/// # Examples
+/// 
+/// ```
+/// use nacm_rust_prototype::{NacmCommandRule, RuleEffect, Operation};
+/// use std::collections::HashSet;
+/// 
+/// let mut ops = HashSet::new();
+/// ops.insert(Operation::Read);
+/// ops.insert(Operation::Exec);
+/// 
+/// let cmd_rule = NacmCommandRule {
+///     name: "cli-show-status".to_string(),
+///     context: Some("cli".to_string()),
+///     command: Some("show status".to_string()),
+///     access_operations: ops,
+///     effect: RuleEffect::Permit,
+///     order: 10,
+///     log_if_permit: true,
+///     log_if_deny: false,
+///     comment: Some("Allow operators to view system status".to_string()),
+/// };
+/// ```
+#[derive(Debug, Clone)]
+pub struct NacmCommandRule {
+    /// Unique name for this command rule
+    pub name: String,
+    /// Management interface pattern (e.g., "cli", "webui", "*")
+    pub context: Option<String>,
+    /// Command pattern to match (supports wildcards)
+    pub command: Option<String>,
+    /// Set of command operations covered by this rule
+    pub access_operations: HashSet<Operation>,
+    /// Whether this rule permits or denies access
+    pub effect: RuleEffect,
+    /// Rule precedence within the rule list
+    pub order: u32,
+    /// Log when this rule permits access
+    pub log_if_permit: bool,
+    /// Log when this rule denies access
+    pub log_if_deny: bool,
+    /// Optional description of the rule
+    pub comment: Option<String>,
 }
 
 /// NACM Rule List with associated groups
@@ -211,17 +373,19 @@ pub struct NacmRule {
 /// * `name` - Identifier for this rule list
 /// * `groups` - User groups this rule list applies to
 /// * `rules` - Ordered list of access control rules
+/// * `command_rules` - Ordered list of command access control rules (Tail-f extension)
 /// 
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{NacmRuleList, NacmRule, RuleEffect, Operation};
+/// use nacm_rust_prototype::{NacmRuleList, NacmRule, NacmCommandRule, RuleEffect, Operation};
 /// use std::collections::HashSet;
 /// 
 /// let rule_list = NacmRuleList {
 ///     name: "admin-rules".to_string(),
 ///     groups: vec!["admin".to_string()],
 ///     rules: vec![], // Would contain actual rules
+///     command_rules: vec![], // Would contain command rules
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -232,6 +396,8 @@ pub struct NacmRuleList {
     pub groups: Vec<String>,
     /// Ordered list of rules in this list
     pub rules: Vec<NacmRule>,
+    /// Ordered list of command rules in this list (Tail-f extension)
+    pub command_rules: Vec<NacmCommandRule>,
 }
 
 /// NACM Group definition
@@ -243,6 +409,7 @@ pub struct NacmRuleList {
 /// 
 /// * `name` - Group identifier (e.g., "admin", "operators")
 /// * `users` - List of usernames belonging to this group
+/// * `gid` - Optional numerical group ID for OS integration (Tail-f extension)
 /// 
 /// # Examples
 /// 
@@ -252,6 +419,7 @@ pub struct NacmRuleList {
 /// let admin_group = NacmGroup {
 ///     name: "admin".to_string(),
 ///     users: vec!["alice".to_string(), "bob".to_string()],
+///     gid: Some(1000),
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -260,6 +428,8 @@ pub struct NacmGroup {
     pub name: String,
     /// List of usernames in this group
     pub users: Vec<String>,
+    /// Optional numerical group ID for OS integration (Tail-f extension)
+    pub gid: Option<i32>,
 }
 
 /// Full NACM configuration
@@ -276,6 +446,10 @@ pub struct NacmGroup {
 /// * `read_default` - Default policy for read operations
 /// * `write_default` - Default policy for write operations (create/update/delete)
 /// * `exec_default` - Default policy for exec operations (RPC calls)
+/// * `cmd_read_default` - Default policy for command read operations (Tail-f extension)
+/// * `cmd_exec_default` - Default policy for command exec operations (Tail-f extension)
+/// * `log_if_default_permit` - Log when default policies permit access (Tail-f extension)
+/// * `log_if_default_deny` - Log when default policies deny access (Tail-f extension)
 /// * `groups` - Map of group names to group definitions
 /// * `rule_lists` - List of rule lists, processed in order
 /// 
@@ -290,6 +464,10 @@ pub struct NacmGroup {
 ///     read_default: RuleEffect::Deny,
 ///     write_default: RuleEffect::Deny,
 ///     exec_default: RuleEffect::Deny,
+///     cmd_read_default: RuleEffect::Permit,
+///     cmd_exec_default: RuleEffect::Permit,
+///     log_if_default_permit: false,
+///     log_if_default_deny: false,
 ///     groups: HashMap::new(),
 ///     rule_lists: vec![],
 /// };
@@ -304,6 +482,14 @@ pub struct NacmConfig {
     pub write_default: RuleEffect,
     /// Default policy for exec operations (RPCs) when no rules match
     pub exec_default: RuleEffect,
+    /// Default policy for command read operations when no command rules match (Tail-f extension)
+    pub cmd_read_default: RuleEffect,
+    /// Default policy for command exec operations when no command rules match (Tail-f extension)
+    pub cmd_exec_default: RuleEffect,
+    /// Log when default policies permit access (Tail-f extension)
+    pub log_if_default_permit: bool,
+    /// Log when default policies deny access (Tail-f extension)
+    pub log_if_default_deny: bool,
     /// Map of group name to group definition
     pub groups: HashMap<String, NacmGroup>,
     /// Ordered list of rule lists
@@ -328,11 +514,13 @@ pub struct NacmConfig {
 /// * `rpc_name` - RPC being called (if applicable)
 /// * `operation` - Type of operation being performed
 /// * `path` - Data path being accessed (if applicable)
+/// * `context` - Request context (NETCONF, CLI, WebUI, etc.) - Tail-f extension
+/// * `command` - Command being executed (for command rules) - Tail-f extension
 /// 
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{AccessRequest, Operation};
+/// use nacm_rust_prototype::{AccessRequest, Operation, RequestContext};
 /// 
 /// let request = AccessRequest {
 ///     user: "alice",
@@ -340,6 +528,8 @@ pub struct NacmConfig {
 ///     rpc_name: None,
 ///     operation: Operation::Read,
 ///     path: Some("/interfaces/interface[name='eth0']"),
+///     context: Some(&RequestContext::NETCONF),
+///     command: None,
 /// };
 /// ```
 pub struct AccessRequest<'a> {
@@ -353,6 +543,10 @@ pub struct AccessRequest<'a> {
     pub operation: Operation,
     /// XPath or data path being accessed (None if not path-specific)
     pub path: Option<&'a str>,
+    /// Request context (NETCONF, CLI, WebUI, etc.) - Tail-f extension
+    pub context: Option<&'a RequestContext>,
+    /// Command being executed (for command rules) - Tail-f extension
+    pub command: Option<&'a str>,
 }
 
 // ============================================================================
@@ -401,11 +595,28 @@ struct XmlNacm {
     /// Default policy for exec operations (XML: <exec-default>)
     #[serde(rename = "exec-default")]
     pub exec_default: String,
+    /// Default policy for command read operations (XML: <cmd-read-default>) - Tail-f extension
+    #[serde(rename = "cmd-read-default", default = "default_permit")]
+    pub cmd_read_default: String,
+    /// Default policy for command exec operations (XML: <cmd-exec-default>) - Tail-f extension
+    #[serde(rename = "cmd-exec-default", default = "default_permit")]
+    pub cmd_exec_default: String,
+    /// Log when default policies permit access (XML: <log-if-default-permit/>) - Tail-f extension
+    #[serde(rename = "log-if-default-permit", default)]
+    pub log_if_default_permit: Option<()>,
+    /// Log when default policies deny access (XML: <log-if-default-deny/>) - Tail-f extension
+    #[serde(rename = "log-if-default-deny", default)]
+    pub log_if_default_deny: Option<()>,
     /// Container for all groups (XML: <groups>)
     pub groups: XmlGroups,
     /// List of rule lists (XML: <rule-list> elements)
     #[serde(rename = "rule-list")]
     pub rule_lists: Vec<XmlRuleList>,
+}
+
+/// Default function for cmd-read-default and cmd-exec-default
+fn default_permit() -> String {
+    "permit".to_string()
 }
 
 /// Container for group definitions from XML
@@ -428,6 +639,9 @@ struct XmlGroup {
     /// The `default` attribute provides an empty vector if no users are specified
     #[serde(rename = "user-name", default)]
     pub user_names: Vec<String>,
+    /// Optional numerical group ID (XML: <gid>) - Tail-f extension
+    #[serde(default)]
+    pub gid: Option<i32>,
 }
 
 /// Rule list definition from XML
@@ -444,6 +658,9 @@ struct XmlRuleList {
     /// The `default` attribute provides an empty vector if no rules are specified
     #[serde(default)]
     pub rule: Vec<XmlRule>,
+    /// List of command rules in this rule list (XML: <cmdrule> elements) - Tail-f extension
+    #[serde(default)]
+    pub cmdrule: Vec<XmlCommandRule>,
 }
 
 /// Individual access control rule from XML
@@ -467,6 +684,45 @@ struct XmlRule {
     pub access_operations: Option<String>,
     /// Rule effect: "permit" or "deny" (XML: <action>)
     pub action: String,
+    /// Request context pattern (XML: <context>) - Tail-f extension
+    #[serde(default)]
+    pub context: Option<String>,
+    /// Log when this rule permits access (XML: <log-if-permit/>) - Tail-f extension
+    #[serde(rename = "log-if-permit", default)]
+    pub log_if_permit: Option<()>,
+    /// Log when this rule denies access (XML: <log-if-deny/>) - Tail-f extension
+    #[serde(rename = "log-if-deny", default)]
+    pub log_if_deny: Option<()>,
+}
+
+/// Individual command access control rule from XML (Tail-f extension)
+/// 
+/// Maps to a `<cmdrule>` element with all its sub-elements.
+/// Optional fields use `Option<T>` to handle missing XML elements.
+#[derive(Debug, Deserialize)]
+struct XmlCommandRule {
+    /// Command rule name (XML: <name>)
+    pub name: String,
+    /// Management interface pattern (XML: <context>)
+    #[serde(default)]
+    pub context: Option<String>,
+    /// Command pattern to match (XML: <command>)
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Space-separated list of command operations (XML: <access-operations>)
+    #[serde(rename = "access-operations")]
+    pub access_operations: Option<String>,
+    /// Rule effect: "permit" or "deny" (XML: <action>)
+    pub action: String,
+    /// Log when this rule permits access (XML: <log-if-permit/>)
+    #[serde(rename = "log-if-permit", default)]
+    pub log_if_permit: Option<()>,
+    /// Log when this rule denies access (XML: <log-if-deny/>)
+    #[serde(rename = "log-if-deny", default)]
+    pub log_if_deny: Option<()>,
+    /// Optional description (XML: <comment>)
+    #[serde(default)]
+    pub comment: Option<String>,
 }
 
 impl NacmConfig {
@@ -527,6 +783,7 @@ impl NacmConfig {
             groups.insert(xml_group.name.clone(), NacmGroup {
                 name: xml_group.name,
                 users: xml_group.user_names,
+                gid: xml_group.gid, // Tail-f extension
             });
         }
         
@@ -576,6 +833,50 @@ impl NacmConfig {
                     // Calculate rule priority: list_position * 1000 + rule_position
                     // This ensures proper ordering across multiple rule lists
                     order: (order_base * 1000 + rule_order) as u32,
+                    context: xml_rule.context.clone(), // Tail-f extension
+                    log_if_permit: xml_rule.log_if_permit.is_some(), // Tail-f extension
+                    log_if_deny: xml_rule.log_if_deny.is_some(), // Tail-f extension
+                });
+            }
+            
+            // Process command rules within this rule list (Tail-f extension)
+            let mut command_rules = Vec::new();
+            for (cmd_rule_order, xml_cmd_rule) in xml_rule_list.cmdrule.iter().enumerate() {
+                // Parse command access operations
+                let mut cmd_access_operations = HashSet::new();
+                if let Some(ops_str) = &xml_cmd_rule.access_operations {
+                    if ops_str.trim() == "*" {
+                        // For command rules, wildcard typically means read and exec
+                        cmd_access_operations.insert(Operation::Read);
+                        cmd_access_operations.insert(Operation::Exec);
+                    } else {
+                        // Parse space-separated operation names like "read exec"
+                        for op in ops_str.split_whitespace() {
+                            if let Ok(operation) = op.parse::<Operation>() {
+                                cmd_access_operations.insert(operation);
+                            }
+                        }
+                    }
+                } else {
+                    // Default to all command operations if not specified
+                    cmd_access_operations.insert(Operation::Read);
+                    cmd_access_operations.insert(Operation::Exec);
+                }
+                
+                // Parse command rule effect
+                let cmd_effect = xml_cmd_rule.action.parse::<RuleEffect>()?;
+                
+                // Create internal command rule representation
+                command_rules.push(NacmCommandRule {
+                    name: xml_cmd_rule.name.clone(),
+                    context: xml_cmd_rule.context.clone(),
+                    command: xml_cmd_rule.command.clone(),
+                    access_operations: cmd_access_operations,
+                    effect: cmd_effect,
+                    order: (order_base * 1000 + cmd_rule_order) as u32,
+                    log_if_permit: xml_cmd_rule.log_if_permit.is_some(),
+                    log_if_deny: xml_cmd_rule.log_if_deny.is_some(),
+                    comment: xml_cmd_rule.comment.clone(),
                 });
             }
             
@@ -585,6 +886,7 @@ impl NacmConfig {
                 name: xml_rule_list.name.clone(),
                 groups: vec![xml_rule_list.group.clone()],  // Wrap single group in Vec
                 rules,
+                command_rules, // Tail-f extension
             });
         }
         
@@ -596,6 +898,12 @@ impl NacmConfig {
             read_default: xml_config.nacm.read_default.parse()?,
             write_default: xml_config.nacm.write_default.parse()?,
             exec_default: xml_config.nacm.exec_default.parse()?,
+            // Parse Tail-f command default policies
+            cmd_read_default: xml_config.nacm.cmd_read_default.parse()?,
+            cmd_exec_default: xml_config.nacm.cmd_exec_default.parse()?,
+            // Parse Tail-f logging settings (empty elements become true if present)
+            log_if_default_permit: xml_config.nacm.log_if_default_permit.is_some(),
+            log_if_default_deny: xml_config.nacm.log_if_default_deny.is_some(),
             groups,
             rule_lists,
         })
@@ -604,16 +912,18 @@ impl NacmConfig {
     /// Validate an access request against the NACM configuration
     /// 
     /// This is the main validation function that determines whether an access
-    /// request should be permitted or denied based on the NACM rules.
+    /// request should be permitted or denied based on the NACM rules, including
+    /// command rules from the Tail-f ACM extensions.
     /// 
     /// # Algorithm
     /// 
     /// 1. If NACM is disabled globally, permit all access
     /// 2. Find all groups the user belongs to
-    /// 3. Collect all matching rules from applicable rule lists
-    /// 4. Sort rules by precedence (order field)
-    /// 5. Return the effect of the first matching rule
-    /// 6. If no rules match, apply the appropriate default policy
+    /// 3. If this is a command request, check command rules first
+    /// 4. Otherwise, check standard NACM data access rules
+    /// 5. Sort rules by precedence (order field)
+    /// 6. Return the effect and logging info of the first matching rule
+    /// 7. If no rules match, apply the appropriate default policy
     /// 
     /// # Arguments
     /// 
@@ -621,19 +931,22 @@ impl NacmConfig {
     /// 
     /// # Returns
     /// 
-    /// * `RuleEffect::Permit` - Access should be allowed
-    /// * `RuleEffect::Deny` - Access should be denied
+    /// * `ValidationResult` - Contains the access decision and logging flag
     /// 
     /// # Examples
     /// 
     /// ```rust
-    /// use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RuleEffect};
+    /// use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext, ValidationResult, RuleEffect};
     /// 
     /// # let config = NacmConfig {
     /// #     enable_nacm: true,
     /// #     read_default: RuleEffect::Deny,
     /// #     write_default: RuleEffect::Deny,
     /// #     exec_default: RuleEffect::Deny,
+    /// #     cmd_read_default: RuleEffect::Permit,
+    /// #     cmd_exec_default: RuleEffect::Permit,
+    /// #     log_if_default_permit: false,
+    /// #     log_if_default_deny: false,
     /// #     groups: std::collections::HashMap::new(),
     /// #     rule_lists: vec![],
     /// # };
@@ -643,15 +956,20 @@ impl NacmConfig {
     ///     rpc_name: None,
     ///     operation: Operation::Read,
     ///     path: Some("/interfaces"),
+    ///     context: Some(&RequestContext::NETCONF),
+    ///     command: None,
     /// };
     /// 
     /// let result = config.validate(&request);
-    /// // Result will be Permit or Deny based on the rules
+    /// // Result contains both the access decision and logging flag
     /// ```
-    pub fn validate(&self, req: &AccessRequest) -> RuleEffect {
-        // Step 1: If NACM is disabled, permit all access
+    pub fn validate(&self, req: &AccessRequest) -> ValidationResult {
+        // Step 1: If NACM is disabled, permit all access without logging
         if !self.enable_nacm {
-            return RuleEffect::Permit;
+            return ValidationResult {
+                effect: RuleEffect::Permit,
+                should_log: false,
+            };
         }
         
         // Step 2: Find all groups this user belongs to
@@ -667,43 +985,237 @@ impl NacmConfig {
             })
             .collect();                // Collect into a Vec
         
-        // Step 3: Collect all matching rules from applicable rule lists
-        let mut all_matches = Vec::new();
+        // Step 3: Check if this is a command request
+        if req.command.is_some() {
+            return self.validate_command_request(req, &user_groups);
+        }
         
+        // Step 4: Standard NACM data access validation
+        self.validate_data_request(req, &user_groups)
+    }
+    
+    /// Validate a command access request (Tail-f ACM extension)
+    /// 
+    /// This helper function specifically handles command rule validation
+    /// for CLI, WebUI, and other command-based access requests.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `req` - The access request containing command information
+    /// * `user_groups` - List of groups the user belongs to
+    /// 
+    /// # Returns
+    /// 
+    /// * `ValidationResult` - Contains the access decision and logging flag
+    fn validate_command_request(&self, req: &AccessRequest, user_groups: &[&str]) -> ValidationResult {
+        let mut matching_cmd_rules = Vec::new();
+        
+        // Collect all matching command rules from applicable rule lists
         for rule_list in &self.rule_lists {
             // Check if this rule list applies to any of the user's groups
             let applies = rule_list.groups.iter().any(|group| {
-                group == "*" ||                              // Wildcard group
-                user_groups.contains(&group.as_str())        // User is in this group
+                group == "*" || user_groups.contains(&group.as_str())
+            });
+            
+            if applies {
+                // Check each command rule in this rule list
+                for cmd_rule in &rule_list.command_rules {
+                    if self.command_rule_matches(cmd_rule, req) {
+                        matching_cmd_rules.push(cmd_rule);
+                    }
+                }
+            }
+        }
+        
+        // Sort command rules by precedence (lower order = higher priority)
+        matching_cmd_rules.sort_by_key(|r| r.order);
+        
+        // Return the effect of the first matching command rule
+        if let Some(cmd_rule) = matching_cmd_rules.first() {
+            let should_log = match cmd_rule.effect {
+                RuleEffect::Permit => cmd_rule.log_if_permit,
+                RuleEffect::Deny => cmd_rule.log_if_deny,
+            };
+            
+            ValidationResult {
+                effect: cmd_rule.effect,
+                should_log,
+            }
+        } else {
+            // No command rules matched - apply command default policy
+            let default_effect = match req.operation {
+                Operation::Read => self.cmd_read_default,
+                _ => self.cmd_exec_default, // All other operations default to exec policy
+            };
+            
+            let should_log = match default_effect {
+                RuleEffect::Permit => self.log_if_default_permit,
+                RuleEffect::Deny => self.log_if_default_deny,
+            };
+            
+            ValidationResult {
+                effect: default_effect,
+                should_log,
+            }
+        }
+    }
+    
+    /// Validate a data access request (standard NACM)
+    /// 
+    /// This helper function handles standard NACM data access rule validation
+    /// for NETCONF and similar protocol-based requests.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `req` - The access request containing data access information
+    /// * `user_groups` - List of groups the user belongs to
+    /// 
+    /// # Returns
+    /// 
+    /// * `ValidationResult` - Contains the access decision and logging flag
+    fn validate_data_request(&self, req: &AccessRequest, user_groups: &[&str]) -> ValidationResult {
+        let mut matching_rules = Vec::new();
+        
+        // Collect all matching rules from applicable rule lists
+        for rule_list in &self.rule_lists {
+            // Check if this rule list applies to any of the user's groups
+            let applies = rule_list.groups.iter().any(|group| {
+                group == "*" || user_groups.contains(&group.as_str())
             });
             
             if applies {
                 // Check each rule in this rule list
                 for rule in &rule_list.rules {
                     if self.rule_matches(rule, req) {
-                        all_matches.push(rule);
+                        matching_rules.push(rule);
                     }
                 }
             }
         }
         
-        // Step 4: Sort rules by precedence (lower order = higher priority)
-        // This ensures we process the most important rules first
-        all_matches.sort_by_key(|r| r.order);
+        // Sort rules by precedence (lower order = higher priority)
+        matching_rules.sort_by_key(|r| r.order);
         
-        // Step 5: Return the effect of the first (highest priority) matching rule
-        if let Some(rule) = all_matches.first() {
-            rule.effect
+        // Return the effect of the first matching rule
+        if let Some(rule) = matching_rules.first() {
+            let should_log = match rule.effect {
+                RuleEffect::Permit => rule.log_if_permit,
+                RuleEffect::Deny => rule.log_if_deny,
+            };
+            
+            ValidationResult {
+                effect: rule.effect,
+                should_log,
+            }
         } else {
-            // Step 6: No rules matched - apply default policy based on operation type
-            match req.operation {
+            // No rules matched - apply default policy based on operation type
+            let default_effect = match req.operation {
                 Operation::Read => self.read_default,
                 // Group write operations together (create/update/delete)
                 Operation::Create | Operation::Update | Operation::Delete => self.write_default,
                 Operation::Exec => self.exec_default,
+            };
+            
+            let should_log = match default_effect {
+                RuleEffect::Permit => self.log_if_default_permit,
+                RuleEffect::Deny => self.log_if_default_deny,
+            };
+            
+            ValidationResult {
+                effect: default_effect,
+                should_log,
             }
         }
     }
+    
+    /// Check if a command rule matches an access request (Tail-f ACM extension)
+    /// 
+    /// This private helper function determines whether a specific command rule
+    /// applies to a given access request. A command rule matches if ALL of its
+    /// conditions are satisfied (AND logic).
+    /// 
+    /// # Matching Logic
+    /// 
+    /// * **Operations**: Rule must cover the requested operation
+    /// * **Context**: Rule's context must match the request context (or be wildcard)
+    /// * **Command**: Rule's command pattern must match the requested command
+    /// 
+    /// # Arguments
+    /// 
+    /// * `cmd_rule` - The command rule to check
+    /// * `req` - The access request to match against
+    /// 
+    /// # Returns
+    /// 
+    /// * `true` if the command rule matches the request
+    /// * `false` if any condition fails
+    fn command_rule_matches(&self, cmd_rule: &NacmCommandRule, req: &AccessRequest) -> bool {
+        // Check 1: Operations - Rule must cover the requested operation
+        if !cmd_rule.access_operations.is_empty() && !cmd_rule.access_operations.contains(&req.operation) {
+            return false;
+        }
+        
+        // Check 2: Context matching
+        if let Some(rule_context) = &cmd_rule.context {
+            if let Some(req_context) = req.context {
+                if !req_context.matches(rule_context) {
+                    return false;
+                }
+            } else if rule_context != "*" {
+                // Rule specifies context but request has none
+                return false;
+            }
+        }
+        
+        // Check 3: Command matching
+        if let Some(rule_command) = &cmd_rule.command {
+            if let Some(req_command) = req.command {
+                if !self.command_matches(rule_command, req_command) {
+                    return false;
+                }
+            } else if rule_command != "*" {
+                // Rule specifies command but request has none
+                return false;
+            }
+        }
+        
+        true
+    }
+    
+    /// Check if a command pattern matches a requested command
+    /// 
+    /// Implements command matching logic supporting:
+    /// - Exact string matching
+    /// - Wildcard matching with '*'
+    /// - Prefix matching for command hierarchies
+    /// 
+    /// # Arguments
+    /// 
+    /// * `pattern` - The command pattern from the rule
+    /// * `command` - The requested command
+    /// 
+    /// # Returns
+    /// 
+    /// * `true` if the pattern matches the command
+    /// * `false` otherwise
+    fn command_matches(&self, pattern: &str, command: &str) -> bool {
+        if pattern == "*" {
+            return true; // Wildcard matches everything
+        }
+        
+        if pattern == command {
+            return true; // Exact match
+        }
+        
+        // Check for wildcard suffix (e.g., "show *")
+        if pattern.ends_with('*') {
+            let prefix = &pattern[..pattern.len() - 1].trim();
+            return command.starts_with(prefix);
+        }
+        
+        false
+    }
+    
     
     /// Check if a rule matches an access request
     /// 
@@ -734,7 +1246,19 @@ impl NacmConfig {
             return false;  // Rule doesn't cover this operation
         }
         
-        // Check 2: Module name matching
+        // Check 2: Context matching (Tail-f extension)
+        if let Some(rule_context) = &rule.context {
+            if let Some(req_context) = req.context {
+                if !req_context.matches(rule_context) {
+                    return false;  // Context doesn't match
+                }
+            } else if rule_context != "*" {
+                // Rule specifies context but request has none
+                return false;
+            }
+        }
+        
+        // Check 3: Module name matching
         // If rule specifies a module, request must be for the same module
         if let Some(rule_module) = &rule.module_name {
             if let Some(req_module) = req.module_name {
@@ -746,7 +1270,7 @@ impl NacmConfig {
             }
         }
         
-        // Check 3: RPC name matching
+        // Check 4: RPC name matching
         // Special handling for wildcard ("*") RPCs
         if let Some(rule_rpc) = &rule.rpc_name {
             if rule_rpc == "*" {
@@ -760,7 +1284,7 @@ impl NacmConfig {
             }
         }
         
-        // Check 4: Path matching (simplified XPath-style matching)
+        // Check 5: Path matching (simplified XPath-style matching)
         // Supports exact matches and simple wildcard patterns
         if let Some(rule_path) = &rule.path {
             if rule_path == "/" {
@@ -862,9 +1386,12 @@ mod tests {
             rpc_name: Some("edit-config"),
             operation: Operation::Exec,
             path: None,
+            context: Some(&RequestContext::NETCONF),
+            command: None,
         };
         
-        assert_eq!(config.validate(&req), RuleEffect::Permit);
+        let result = config.validate(&req);
+        assert_eq!(result.effect, RuleEffect::Permit);
     }
 
     #[test]
@@ -888,8 +1415,11 @@ mod tests {
             rpc_name: Some("edit-config"),
             operation: Operation::Exec,
             path: None,
+            context: Some(&RequestContext::NETCONF),
+            command: None,
         };
-        assert_eq!(config.validate(&admin_req), RuleEffect::Permit);
+        let admin_result = config.validate(&admin_req);
+        assert_eq!(admin_result.effect, RuleEffect::Permit);
         
         // Test oper user - should be denied edit-config
         let oper_req = AccessRequest {
@@ -898,8 +1428,11 @@ mod tests {
             rpc_name: Some("edit-config"),
             operation: Operation::Exec,
             path: None,
+            context: Some(&RequestContext::NETCONF),
+            command: None,
         };
-        assert_eq!(config.validate(&oper_req), RuleEffect::Deny);
+        let oper_result = config.validate(&oper_req);
+        assert_eq!(oper_result.effect, RuleEffect::Deny);
         
         // Test oper user - should be denied writing to nacm module
         let nacm_write_req = AccessRequest {
@@ -908,8 +1441,11 @@ mod tests {
             rpc_name: None,
             operation: Operation::Update,
             path: Some("/"),
+            context: Some(&RequestContext::NETCONF),
+            command: None,
         };
-        assert_eq!(config.validate(&nacm_write_req), RuleEffect::Deny);
+        let nacm_write_result = config.validate(&nacm_write_req);
+        assert_eq!(nacm_write_result.effect, RuleEffect::Deny);
         
         // Test any user with example module - should be permitted for /misc/*
         let example_req = AccessRequest {
@@ -918,8 +1454,11 @@ mod tests {
             rpc_name: None,
             operation: Operation::Read,
             path: Some("/misc/foo"),
+            context: Some(&RequestContext::NETCONF),
+            command: None,
         };
-        assert_eq!(config.validate(&example_req), RuleEffect::Permit);
+        let example_result = config.validate(&example_req);
+        assert_eq!(example_result.effect, RuleEffect::Permit);
         
         // Test configuration loaded properly
         assert_eq!(config.enable_nacm, true);
@@ -943,5 +1482,134 @@ mod tests {
         
         println!("Successfully parsed {} groups and {} rule lists", 
                  config.groups.len(), config.rule_lists.len());
+    }
+    
+    #[test]
+    fn test_tailf_command_rules() {
+        let xml = r#"
+        <config xmlns="http://tail-f.com/ns/config/1.0">
+            <nacm xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-acm">
+                <enable-nacm>true</enable-nacm>
+                <read-default>deny</read-default>
+                <write-default>deny</write-default>
+                <exec-default>deny</exec-default>
+                <cmd-read-default xmlns="http://tail-f.com/yang/acm">deny</cmd-read-default>
+                <cmd-exec-default xmlns="http://tail-f.com/yang/acm">deny</cmd-exec-default>
+                <log-if-default-permit xmlns="http://tail-f.com/yang/acm"/>
+                <log-if-default-deny xmlns="http://tail-f.com/yang/acm"/>
+                <groups>
+                    <group>
+                        <name>operators</name>
+                        <user-name>oper</user-name>
+                        <gid xmlns="http://tail-f.com/yang/acm">1000</gid>
+                    </group>
+                </groups>
+                <rule-list>
+                    <name>operators</name>
+                    <group>operators</group>
+                    <cmdrule xmlns="http://tail-f.com/yang/acm">
+                        <name>cli-show-status</name>
+                        <context>cli</context>
+                        <command>show status</command>
+                        <access-operations>read exec</access-operations>
+                        <action>permit</action>
+                        <log-if-permit/>
+                    </cmdrule>
+                    <cmdrule xmlns="http://tail-f.com/yang/acm">
+                        <name>cli-help</name>
+                        <context>cli</context>
+                        <command>help</command>
+                        <action>permit</action>
+                    </cmdrule>
+                    <cmdrule xmlns="http://tail-f.com/yang/acm">
+                        <name>deny-reboot</name>
+                        <context>*</context>
+                        <command>reboot</command>
+                        <action>deny</action>
+                        <log-if-deny/>
+                    </cmdrule>
+                </rule-list>
+            </nacm>
+        </config>"#;
+        
+        let config = NacmConfig::from_xml(xml).unwrap();
+        
+        // Test Tail-f extensions parsed correctly
+        assert_eq!(config.cmd_read_default, RuleEffect::Deny);
+        assert_eq!(config.cmd_exec_default, RuleEffect::Deny);
+        assert_eq!(config.log_if_default_permit, true);
+        assert_eq!(config.log_if_default_deny, true);
+        
+        // Test group GID
+        let oper_group = &config.groups["operators"];
+        assert_eq!(oper_group.gid, Some(1000));
+        
+        // Test command rule parsed correctly
+        let rule_list = &config.rule_lists[0];
+        assert_eq!(rule_list.command_rules.len(), 3);
+        
+        let show_status_rule = &rule_list.command_rules[0];
+        assert_eq!(show_status_rule.name, "cli-show-status");
+        assert_eq!(show_status_rule.context.as_deref(), Some("cli"));
+        assert_eq!(show_status_rule.command.as_deref(), Some("show status"));
+        assert_eq!(show_status_rule.effect, RuleEffect::Permit);
+        assert_eq!(show_status_rule.log_if_permit, true);
+        assert_eq!(show_status_rule.log_if_deny, false);
+        
+        // Test CLI command validation - should permit
+        let cli_show_req = AccessRequest {
+            user: "oper",
+            module_name: None,
+            rpc_name: None,
+            operation: Operation::Read,
+            path: None,
+            context: Some(&RequestContext::CLI),
+            command: Some("show status"),
+        };
+        let show_result = config.validate(&cli_show_req);
+        assert_eq!(show_result.effect, RuleEffect::Permit);
+        assert_eq!(show_result.should_log, true); // Should log because rule has log-if-permit
+        
+        // Test CLI help command - should permit but not log
+        let cli_help_req = AccessRequest {
+            user: "oper",
+            module_name: None,
+            rpc_name: None,
+            operation: Operation::Exec,
+            path: None,
+            context: Some(&RequestContext::CLI),
+            command: Some("help"),
+        };
+        let help_result = config.validate(&cli_help_req);
+        assert_eq!(help_result.effect, RuleEffect::Permit);
+        assert_eq!(help_result.should_log, false); // No logging flags set
+        
+        // Test reboot command from any context - should deny and log
+        let reboot_req = AccessRequest {
+            user: "oper",
+            module_name: None,
+            rpc_name: None,
+            operation: Operation::Exec,
+            path: None,
+            context: Some(&RequestContext::WebUI),
+            command: Some("reboot"),
+        };
+        let reboot_result = config.validate(&reboot_req);
+        assert_eq!(reboot_result.effect, RuleEffect::Deny);
+        assert_eq!(reboot_result.should_log, true); // Should log because rule has log-if-deny
+        
+        // Test command that doesn't match any rule - should use default and log
+        let unknown_cmd_req = AccessRequest {
+            user: "oper",
+            module_name: None,
+            rpc_name: None,
+            operation: Operation::Exec,
+            path: None,
+            context: Some(&RequestContext::CLI),
+            command: Some("unknown-command"),
+        };
+        let unknown_result = config.validate(&unknown_cmd_req);
+        assert_eq!(unknown_result.effect, RuleEffect::Deny); // cmd-exec-default is deny
+        assert_eq!(unknown_result.should_log, true); // log-if-default-deny is true
     }
 }

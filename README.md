@@ -1,9 +1,10 @@
 # NACM Rust Prototype
 
-A Rust implementation of **NACM** (Network Access Control Model) as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt). This prototype demonstrates parsing real NACM XML configurations and validating access requests against defined rules.
+A Rust implementation of **NACM** (Network Access Control Model) as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for **Tail-f ACM extensions** for command-based access control. This prototype demonstrates parsing real NACM XML configurations and validating access requests against defined rules.
 
 ## 🚀 Features
 
+### Standard NACM (RFC 8341)
 - **XML Configuration Parsing**: Parse real-world NACM XML configurations
 - **Rule-based Access Control**: Support for permit/deny rules with precedence
 - **Group Management**: User groups with inheritance
@@ -11,6 +12,14 @@ A Rust implementation of **NACM** (Network Access Control Model) as defined in [
 - **Path Matching**: XPath-style path matching for fine-grained access control
 - **RPC-level Control**: Control access to specific NETCONF RPCs
 - **Module-based Rules**: Control access to specific YANG modules
+
+### Tail-f ACM Extensions
+- **Command Rules**: Access control for CLI and Web UI operations (`<cmdrule>`)
+- **Enhanced Logging**: Fine-grained logging control with `log-if-permit`/`log-if-deny`
+- **Context-Aware Rules**: Different rules for NETCONF, CLI, WebUI contexts
+- **Group ID Mapping**: OS-level group integration with `<gid>` mapping
+- **Command Default Policies**: Separate default policies for command operations
+- **Symmetric Logging**: Control logging for both permit and deny decisions
 
 ## 📋 Prerequisites
 
@@ -160,29 +169,56 @@ nacm-rust-prototype = { path = "../nacm-rust-prototype" }
 ### Basic Library Usage
 
 ```rust
-use nacm_rust_prototype::{AccessRequest, NacmConfig, Operation};
+use nacm_rust_prototype::{AccessRequest, NacmConfig, Operation, RequestContext, ValidationResult};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load NACM configuration from XML
     let xml_content = std::fs::read_to_string("examples/data/aaa_ncm_init.xml")?;
     let config = NacmConfig::from_xml(&xml_content)?;
     
-    // Create an access request
-    let request = AccessRequest {
+    // Create a data access request
+    let context = RequestContext::NETCONF;
+    let data_request = AccessRequest {
         user: "alice",
         module_name: Some("ietf-interfaces"),
         rpc_name: None,
         operation: Operation::Read,
         path: Some("/interfaces"),
+        context: Some(&context),
+        command: None,
     };
     
-    // Validate the request
-    let result = config.validate(&request);
-    println!("Access result: {:?}", result);
+    // Validate the data request
+    let result = config.validate(&data_request);
+    println!("Data access {}: {}", 
+             if result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
+             if result.should_log { "[LOGGED]" } else { "" });
+    
+    // Create a command access request (Tail-f extension)
+    let cli_context = RequestContext::CLI;
+    let command_request = AccessRequest {
+        user: "alice",
+        module_name: None,
+        rpc_name: None,
+        operation: Operation::Read,
+        path: None,
+        context: Some(&cli_context),
+        command: Some("show interfaces"),
+    };
+    
+    // Validate the command request
+    let cmd_result = config.validate(&command_request);
+    println!("Command access {}: {}", 
+             if cmd_result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
+             if cmd_result.should_log { "[LOGGED]" } else { "" });
     
     Ok(())
 }
 ```
+
+The `validate()` method now returns a `ValidationResult` struct containing:
+- `effect`: `RuleEffect::Permit` or `RuleEffect::Deny`
+- `should_log`: Whether this decision should be logged based on the rule's logging configuration
 
 ### Quick CLI Usage
 

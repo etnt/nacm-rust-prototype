@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns="http://tail-f.com/ns/config/1.0">
+    <nacm xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-acm">
+        <enable-nacm>true</enable-nacm>
+        <read-default>deny</read-default>
+        <write-default>deny</write-default>
+        <exec-default>deny</exec-default>
+
+        <!-- Tail-f ACM extensions -->
+        <cmd-read-default xmlns="http://tail-f.com/yang/acm">deny</cmd-read-default>
+        <cmd-exec-default xmlns="http://tail-f.com/yang/acm">deny</cmd-exec-default>
+        <log-if-default-permit xmlns="http://tail-f.com/yang/acm" />
+        <log-if-default-deny xmlns="http://tail-f.com/yang/acm" />
+
+        <groups>
+            <group>
+                <name>operators</name>
+                <user-name>alice</user-name>
+                <user-name>bob</user-name>
+                <gid xmlns="http://tail-f.com/yang/acm">1000</gid>
+            </group>
+            <group>
+                <name>admin</name>
+                <user-name>admin</user-name>
+                <gid xmlns="http://tail-f.com/yang/acm">0</gid>
+            </group>
+        </groups>
+
+        <rule-list>
+            <name>operator-rules</name>
+            <group>operators</group>
+
+            <!-- Allow operators to view system status from CLI -->
+            <cmdrule xmlns="http://tail-f.com/yang/acm">
+                <name>cli-show-status</name>
+                <context>cli</context>
+                <command>show status</command>
+                <access-operations>read exec</access-operations>
+                <action>permit</action>
+                <log-if-permit />
+                <comment>Allow operators to check system status</comment>
+            </cmdrule>
+
+            <!-- Allow show commands with wildcard -->
+            <cmdrule xmlns="http://tail-f.com/yang/acm">
+                <name>cli-show-commands</name>
+                <context>cli</context>
+                <command>show *</command>
+                <access-operations>read</access-operations>
+                <action>permit</action>
+                <comment>Allow all show commands for read access</comment>
+            </cmdrule>
+
+            <!-- Allow help from any context -->
+            <cmdrule xmlns="http://tail-f.com/yang/acm">
+                <name>any-help</name>
+                <context>*</context>
+                <command>help</command>
+                <action>permit</action>
+                <comment>Help should be available everywhere</comment>
+            </cmdrule>
+
+            <!-- Deny reboot from any context -->
+            <cmdrule xmlns="http://tail-f.com/yang/acm">
+                <name>deny-reboot</name>
+                <context>*</context>
+                <command>reboot</command>
+                <action>deny</action>
+                <log-if-deny />
+                <comment>Operators cannot reboot the system</comment>
+            </cmdrule>
+
+            <!-- Standard NACM rule with context and logging -->
+            <rule>
+                <name>read-interfaces</name>
+                <module-name>ietf-interfaces</module-name>
+                <access-operations>read</access-operations>
+                <action>permit</action>
+                <context xmlns="http://tail-f.com/yang/acm">netconf</context>
+                <log-if-permit xmlns="http://tail-f.com/yang/acm" />
+            </rule>
+        </rule-list>
+
+        <rule-list>
+            <name>admin-rules</name>
+            <group>admin</group>
+
+            <!-- Admins can do anything -->
+            <cmdrule xmlns="http://tail-f.com/yang/acm">
+                <name>admin-all-commands</name>
+                <context>*</context>
+                <command>*</command>
+                <access-operations>*</access-operations>
+                <action>permit</action>
+                <comment>Administrators have full command access</comment>
+            </cmdrule>
+
+            <rule>
+                <name>admin-all-access</name>
+                <access-operations>*</access-operations>
+                <action>permit</action>
+                <comment>Administrators have full data access</comment>
+            </rule>
+        </rule-list>
+    </nacm>
+</config>
