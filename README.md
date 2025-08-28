@@ -1,6 +1,6 @@
 # NACM Rust Prototype
 
-A Rust implementation of **NACM** (Network Access Control Model) as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for **Tail-f ACM extensions** for command-based access control. This prototype demonstrates parsing real NACM XML configurations and validating access requests against defined rules.
+A Rust implementation of **NACM** (Network Access Control Model) as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for [Tail-f ACM extensions](doc/rfc-tailf-acm-proposal.md) for command-based access control. This prototype demonstrates parsing real NACM XML configurations and validating access requests against defined rules.
 
 ## 🚀 Features
 
