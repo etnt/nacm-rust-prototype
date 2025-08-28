@@ -606,6 +606,11 @@ module tailf-acm {
      Permission is hereby granted to redistribute this file without
      modification.";
 
+  revision 2025-08-28 {
+    description
+      "Added leaf: log-if-default-deny and log-if-deny.";
+  }
+
   revision 2013-03-07 {
     description
       "Released as part of ConfD-4.2.
