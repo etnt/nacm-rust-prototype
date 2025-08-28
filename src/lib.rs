@@ -1,14 +1,25 @@
-//! # NACM (Network Access Control Model) Implementation
+//! # NACM (Network Access Control Model) Implementation with Tail-f ACM Extensions
 //!
-//! This library implements NACM (RFC 8341) access control validation in Rust.
-//! It provides functionality to:
+//! This library implements NACM (RFC 8341) access control validation in Rust with comprehensive
+//! support for Tail-f ACM (Access Control Model) extensions. It provides functionality to:
+//!
+//! ## Core NACM Features (RFC 8341)
 //! - Parse real-world NACM XML configurations
 //! - Validate access requests against defined rules
 //! - Handle user groups and rule precedence
 //! - Support various operations (CRUD + exec) and path matching
 //!
+//! ## Tail-f ACM Extensions
+//! - **Command Rules**: Context-aware command access control (CLI, WebUI, NETCONF)
+//! - **Enhanced Logging**: Granular logging control with `log-if-*` attributes
+//! - **ValidationResult**: Returns both access decision and logging indication
+//! - **Group ID Mapping**: External authentication system integration via GID
+//! - **Context Awareness**: Different access policies for different user interfaces
+//!
 //! ## Quick Start
 //!
+//! ### Standard NACM Data Access Validation
+//! 
 //! ```rust
 //! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext};
 //!
@@ -38,7 +49,7 @@
 //! </config>"#;
 //! let config = NacmConfig::from_xml(&xml_content)?;
 //!
-//! // Create an access request
+//! // Create a data access request
 //! let context = RequestContext::NETCONF;
 //! let request = AccessRequest {
 //!     user: "alice",
@@ -50,11 +61,73 @@
 //!     command: None,
 //! };
 //!
-//! // Validate the request
+//! // Validate the request - returns ValidationResult with access decision and logging info
 //! let result = config.validate(&request);
 //! println!("Access {}: {}", 
 //!          if result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMIT" } else { "DENY" },
 //!          if result.should_log { "[LOGGED]" } else { "" });
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ### Tail-f ACM Command Access Validation
+//!
+//! ```rust
+//! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext};
+//!
+//! // Load configuration with Tail-f ACM command rules
+//! let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
+//! <config xmlns="http://tail-f.com/ns/config/1.0">
+//!     <nacm xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-acm">
+//!         <enable-nacm>true</enable-nacm>
+//!         <read-default>deny</read-default>
+//!         <write-default>deny</write-default>
+//!         <exec-default>deny</exec-default>
+//!         <cmd-read-default xmlns="http://tail-f.com/yang/acm">permit</cmd-read-default>
+//!         <cmd-exec-default xmlns="http://tail-f.com/yang/acm">deny</cmd-exec-default>
+//!         <groups>
+//!             <group>
+//!                 <name>admin</name>
+//!                 <user-name>alice</user-name>
+//!             </group>
+//!         </groups>
+//!         <rule-list>
+//!             <name>admin-rules</name>
+//!             <group>admin</group>
+//!             <cmdrule xmlns="http://tail-f.com/yang/acm">
+//!                 <name>cli-show</name>
+//!                 <context>cli</context>
+//!                 <command>show *</command>
+//!                 <action>permit</action>
+//!             </cmdrule>
+//!         </rule-list>
+//!     </nacm>
+//! </config>"#;
+//! let config = NacmConfig::from_xml(&xml_content)?;
+//!
+//! // Create a command access request
+//! let context = RequestContext::CLI;
+//! let request = AccessRequest {
+//!     user: "alice",
+//!     module_name: None,
+//!     rpc_name: None,
+//!     operation: Operation::Read,
+//!     path: None,
+//!     context: Some(&context),
+//!     command: Some("show status"),
+//! };
+//!
+//! // Validate command access using Tail-f ACM command rules
+//! let result = config.validate(&request);
+//! match result.effect {
+//!     nacm_rust_prototype::RuleEffect::Permit => {
+//!         println!("Command access PERMITTED{}", 
+//!                 if result.should_log { " [LOGGED]" } else { "" });
+//!     },
+//!     nacm_rust_prototype::RuleEffect::Deny => {
+//!         println!("Command access DENIED{}", 
+//!                 if result.should_log { " [LOGGED]" } else { "" });
+//!     }
+//! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
