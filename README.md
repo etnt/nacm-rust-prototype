@@ -88,6 +88,41 @@ This example shows:
 - Validating different user access scenarios
 - Demonstrating permit/deny decisions based on rules
 
+### Tail-f ACM Extensions Demo
+
+Run the comprehensive Tail-f ACM demo to see all the advanced features in action:
+
+```bash
+cargo run --example tailf_acm_demo
+```
+
+This demo showcases:
+- Command rules with context awareness (CLI, WebUI, NETCONF)
+- Enhanced logging configuration and validation
+- Group ID (GID) mapping for external authentication
+- ValidationResult with both access decision and logging information
+- Context-specific access control policies
+
+**Example Output:**
+```
+🔧 Tail-f ACM Configuration loaded:
+- NACM enabled: true
+- Default policies:
+  * Data: read=Deny, write=Deny, exec=Deny
+  * Commands: cmd_read=Deny, cmd_exec=Deny
+- Logging: default_permit=true, default_deny=true
+- Groups: ["operators", "admin"]
+  * operators (GID: 1000): ["alice", "bob"]
+  * admin (GID: 0): ["admin"]
+- Rule lists: 2
+
+🔍 Command access validation results:
+  ✅ Alice (operator) - CLI show status: PERMIT 📝[LOG]
+  ❌ Bob (operator) - CLI reboot: DENY 📝[LOG]
+  ✅ Admin - WebUI config backup: PERMIT
+...
+```
+
 **Example Output:**
 ```
 NACM Configuration loaded:
@@ -110,16 +145,20 @@ Access validation results:
 ```
 nacm-rust-prototype/
 ├── src/
-│   ├── lib.rs                    # Main library implementation
+│   ├── lib.rs                    # Main library implementation with Tail-f ACM extensions
 │   └── bin/
 │       └── nacm-validator.rs     # CLI tool for bash integration
 ├── examples/
 │   ├── validate_access.rs        # Access validation example
+│   ├── tailf_acm_demo.rs         # Tail-f ACM comprehensive demo
 │   ├── bash_examples.sh          # Bash script integration examples
 │   ├── json_batch_example.sh     # JSON batch processing examples
 │   └── data/
 │       ├── aaa_ncm_init.xml      # Real NACM configuration (insecure example)
-│       └── aaa_ncm_init_secure.xml # Secure NACM configuration
+│       ├── aaa_ncm_init_secure.xml # Secure NACM configuration
+│       └── tailf_acm_example.xml # Tail-f ACM extension example
+├── doc/
+│   └── rfc-tailf-acm-proposal.md # Tail-f ACM RFC proposal document
 ├── Cargo.toml                    # Project configuration
 └── README.md                     # This file
 ```
@@ -397,20 +436,29 @@ echo '{"user": "alice", "operation": "exec", "rpc": "edit-config"}' | \
 {"decision":"deny","user":"alice","module":null,"rpc":"edit-config","operation":"exec","path":null,"config_loaded":true}
 ```
 
-### Example Scripts
+### Example Scripts and Programs
 
-The project includes working examples:
+The project includes comprehensive working examples:
 
 ```bash
-# Run comprehensive bash examples
+# Run standard NACM access validation demo
+cargo run --example validate_access
+
+# Run comprehensive Tail-f ACM extensions demo
+cargo run --example tailf_acm_demo
+
+# Run bash integration examples
 ./examples/bash_examples.sh
 
 # Run JSON batch processing example
 ./examples/json_batch_example.sh
 ```
 
-These scripts demonstrate:
-- ✅ Basic validation with exit codes
+These examples demonstrate:
+- ✅ Standard NACM access validation with real configurations
+- ✅ Tail-f ACM command rules with context awareness
+- ✅ ValidationResult usage with logging information
+- ✅ CLI integration with exit codes
 - ✅ JSON output processing
 - ✅ Batch request processing
 - ✅ Error handling
