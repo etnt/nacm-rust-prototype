@@ -1281,8 +1281,8 @@ impl NacmConfig {
         }
         
         // Check for wildcard suffix (e.g., "show *")
-        if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len() - 1].trim();
+        if let Some(stripped) = pattern.strip_suffix('*') {
+            let prefix = &stripped.trim();
             return command.starts_with(prefix);
         }
         
@@ -1417,7 +1417,7 @@ mod tests {
         </config>"#;
         
         let config = NacmConfig::from_xml(xml).unwrap();
-        assert_eq!(config.enable_nacm, true);
+        assert!(config.enable_nacm);
         assert_eq!(config.read_default, RuleEffect::Deny);
         assert_eq!(config.groups.len(), 1);
         assert_eq!(config.rule_lists.len(), 1);
@@ -1477,7 +1477,7 @@ mod tests {
             .join("aaa_ncm_init.xml");
             
         let xml = std::fs::read_to_string(&xml_path)
-            .expect(&format!("Failed to read XML file at {:?}", xml_path));
+            .unwrap_or_else(|_| panic!("Failed to read XML file at {:?}", xml_path));
         
         let config = NacmConfig::from_xml(&xml).expect("Failed to parse XML");
         
@@ -1534,7 +1534,7 @@ mod tests {
         assert_eq!(example_result.effect, RuleEffect::Permit);
         
         // Test configuration loaded properly
-        assert_eq!(config.enable_nacm, true);
+        assert!(config.enable_nacm);
         assert_eq!(config.read_default, RuleEffect::Deny);
         assert_eq!(config.write_default, RuleEffect::Deny);
         assert_eq!(config.exec_default, RuleEffect::Deny);
@@ -1610,8 +1610,8 @@ mod tests {
         // Test Tail-f extensions parsed correctly
         assert_eq!(config.cmd_read_default, RuleEffect::Deny);
         assert_eq!(config.cmd_exec_default, RuleEffect::Deny);
-        assert_eq!(config.log_if_default_permit, true);
-        assert_eq!(config.log_if_default_deny, true);
+        assert!(config.log_if_default_permit);
+        assert!(config.log_if_default_deny);
         
         // Test group GID
         let oper_group = &config.groups["operators"];
@@ -1626,8 +1626,8 @@ mod tests {
         assert_eq!(show_status_rule.context.as_deref(), Some("cli"));
         assert_eq!(show_status_rule.command.as_deref(), Some("show status"));
         assert_eq!(show_status_rule.effect, RuleEffect::Permit);
-        assert_eq!(show_status_rule.log_if_permit, true);
-        assert_eq!(show_status_rule.log_if_deny, false);
+        assert!(show_status_rule.log_if_permit);
+        assert!(!show_status_rule.log_if_deny);
         
         // Test CLI command validation - should permit
         let cli_show_req = AccessRequest {
@@ -1641,7 +1641,7 @@ mod tests {
         };
         let show_result = config.validate(&cli_show_req);
         assert_eq!(show_result.effect, RuleEffect::Permit);
-        assert_eq!(show_result.should_log, true); // Should log because rule has log-if-permit
+        assert!(show_result.should_log); // Should log because rule has log-if-permit
         
         // Test CLI help command - should permit but not log
         let cli_help_req = AccessRequest {
@@ -1655,7 +1655,7 @@ mod tests {
         };
         let help_result = config.validate(&cli_help_req);
         assert_eq!(help_result.effect, RuleEffect::Permit);
-        assert_eq!(help_result.should_log, false); // No logging flags set
+        assert!(!help_result.should_log); // No logging flags set
         
         // Test reboot command from any context - should deny and log
         let reboot_req = AccessRequest {
@@ -1669,7 +1669,7 @@ mod tests {
         };
         let reboot_result = config.validate(&reboot_req);
         assert_eq!(reboot_result.effect, RuleEffect::Deny);
-        assert_eq!(reboot_result.should_log, true); // Should log because rule has log-if-deny
+        assert!(reboot_result.should_log); // Should log because rule has log-if-deny
         
         // Test command that doesn't match any rule - should use default and log
         let unknown_cmd_req = AccessRequest {
@@ -1683,6 +1683,6 @@ mod tests {
         };
         let unknown_result = config.validate(&unknown_cmd_req);
         assert_eq!(unknown_result.effect, RuleEffect::Deny); // cmd-exec-default is deny
-        assert_eq!(unknown_result.should_log, true); // log-if-default-deny is true
+        assert!(unknown_result.should_log); // log-if-default-deny is true
     }
 }
