@@ -38,7 +38,7 @@
 //! - **2**: Error (invalid config, missing file, etc.)
 
 use clap::{Parser, ValueEnum};
-use nacm_rust_prototype::{AccessRequest, NacmConfig, Operation, RuleEffect};
+use nacm_validator::{AccessRequest, NacmConfig, Operation, RuleEffect};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process;

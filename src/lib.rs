@@ -1,4 +1,4 @@
-//! # NACM (Network Access Control Model) Implementation with Tail-f ACM Extensions
+//! # NACM Validator - Network Access Control Model with Tail-f ACM Extensions
 //!
 //! This library implements NACM (RFC 8341) access control validation in Rust with comprehensive
 //! support for Tail-f ACM (Access Control Model) extensions. It provides functionality to:
@@ -21,7 +21,7 @@
 //! ### Standard NACM Data Access Validation
 //! 
 //! ```rust
-//! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext};
+//! use nacm_validator::{NacmConfig, AccessRequest, Operation, RequestContext};
 //!
 //! // Load configuration from XML
 //! let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -64,7 +64,7 @@
 //! // Validate the request - returns ValidationResult with access decision and logging info
 //! let result = config.validate(&request);
 //! println!("Access {}: {}", 
-//!          if result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMIT" } else { "DENY" },
+//!          if result.effect == nacm_validator::RuleEffect::Permit { "PERMIT" } else { "DENY" },
 //!          if result.should_log { "[LOGGED]" } else { "" });
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -72,7 +72,7 @@
 //! ### Tail-f ACM Command Access Validation
 //!
 //! ```rust
-//! use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext};
+//! use nacm_validator::{NacmConfig, AccessRequest, Operation, RequestContext};
 //!
 //! // Load configuration with Tail-f ACM command rules
 //! let xml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -119,11 +119,11 @@
 //! // Validate command access using Tail-f ACM command rules
 //! let result = config.validate(&request);
 //! match result.effect {
-//!     nacm_rust_prototype::RuleEffect::Permit => {
+//!     nacm_validator::RuleEffect::Permit => {
 //!         println!("Command access PERMITTED{}", 
 //!                 if result.should_log { " [LOGGED]" } else { "" });
 //!     },
-//!     nacm_rust_prototype::RuleEffect::Deny => {
+//!     nacm_validator::RuleEffect::Deny => {
 //!         println!("Command access DENIED{}", 
 //!                 if result.should_log { " [LOGGED]" } else { "" });
 //!     }
@@ -142,7 +142,7 @@ use std::collections::{HashMap, HashSet};
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::RuleEffect;
+/// use nacm_validator::RuleEffect;
 /// 
 /// let permit = RuleEffect::Permit;
 /// let deny = RuleEffect::Deny;
@@ -169,7 +169,7 @@ pub enum RuleEffect {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{ValidationResult, RuleEffect};
+/// use nacm_validator::{ValidationResult, RuleEffect};
 /// 
 /// let result = ValidationResult {
 ///     effect: RuleEffect::Permit,
@@ -213,7 +213,7 @@ impl std::str::FromStr for RuleEffect {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::Operation;
+/// use nacm_validator::Operation;
 /// 
 /// let read_op = Operation::Read;
 /// let write_op = Operation::Update;
@@ -244,7 +244,7 @@ pub enum Operation {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::RequestContext;
+/// use nacm_validator::RequestContext;
 /// 
 /// let cli_context = RequestContext::CLI;
 /// let netconf_context = RequestContext::NETCONF;
@@ -331,7 +331,7 @@ impl std::str::FromStr for Operation {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{NacmRule, RuleEffect, Operation};
+/// use nacm_validator::{NacmRule, RuleEffect, Operation};
 /// use std::collections::HashSet;
 /// 
 /// let mut ops = HashSet::new();
@@ -395,7 +395,7 @@ pub struct NacmRule {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{NacmCommandRule, RuleEffect, Operation};
+/// use nacm_validator::{NacmCommandRule, RuleEffect, Operation};
 /// use std::collections::HashSet;
 /// 
 /// let mut ops = HashSet::new();
@@ -451,7 +451,7 @@ pub struct NacmCommandRule {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{NacmRuleList, NacmRule, NacmCommandRule, RuleEffect, Operation};
+/// use nacm_validator::{NacmRuleList, NacmRule, NacmCommandRule, RuleEffect, Operation};
 /// use std::collections::HashSet;
 /// 
 /// let rule_list = NacmRuleList {
@@ -487,7 +487,7 @@ pub struct NacmRuleList {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::NacmGroup;
+/// use nacm_validator::NacmGroup;
 /// 
 /// let admin_group = NacmGroup {
 ///     name: "admin".to_string(),
@@ -529,7 +529,7 @@ pub struct NacmGroup {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{NacmConfig, RuleEffect};
+/// use nacm_validator::{NacmConfig, RuleEffect};
 /// use std::collections::HashMap;
 /// 
 /// let config = NacmConfig {
@@ -593,7 +593,7 @@ pub struct NacmConfig {
 /// # Examples
 /// 
 /// ```
-/// use nacm_rust_prototype::{AccessRequest, Operation, RequestContext};
+/// use nacm_validator::{AccessRequest, Operation, RequestContext};
 /// 
 /// let request = AccessRequest {
 ///     user: "alice",
@@ -817,7 +817,7 @@ impl NacmConfig {
     /// # Examples
     /// 
     /// ```rust
-    /// use nacm_rust_prototype::NacmConfig;
+    /// use nacm_validator::NacmConfig;
     /// 
     /// let xml = r#"
     /// <config xmlns="http://tail-f.com/ns/config/1.0">
@@ -1009,7 +1009,7 @@ impl NacmConfig {
     /// # Examples
     /// 
     /// ```rust
-    /// use nacm_rust_prototype::{NacmConfig, AccessRequest, Operation, RequestContext, ValidationResult, RuleEffect};
+    /// use nacm_validator::{NacmConfig, AccessRequest, Operation, RequestContext, ValidationResult, RuleEffect};
     /// 
     /// # let config = NacmConfig {
     /// #     enable_nacm: true,

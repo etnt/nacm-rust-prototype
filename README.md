@@ -1,6 +1,6 @@
-# NACM Rust Prototype
+# NACM Validator
 
-A Rust implementation of **NACM** (Network Access Control Model) as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for [Tail-f ACM extensions](doc/rfc-tailf-acm-proposal.md) for command-based access control. This prototype demonstrates parsing real NACM XML configurations and validating access requests against defined rules.
+A Rust implementation of **NACM** (Network Access Control Model) validator as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for [Tail-f ACM extensions](doc/rfc-tailf-acm-proposal.md) for command-based access control. This library and CLI tool demonstrate parsing real NACM XML configurations and validating access requests against defined rules.
 
 ## 🚀 Features
 
@@ -31,7 +31,7 @@ A Rust implementation of **NACM** (Network Access Control Model) as defined in [
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd nacm-rust-prototype
+cd nacm-validator
 
 # Build the project (library and CLI tool)
 cargo build
@@ -143,7 +143,7 @@ Access validation results:
 ## 📁 Project Structure
 
 ```
-nacm-rust-prototype/
+nacm-validator/
 ├── src/
 │   ├── lib.rs                    # Main library implementation with Tail-f ACM extensions
 │   └── bin/
@@ -202,13 +202,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nacm-rust-prototype = { path = "../nacm-rust-prototype" }
+nacm-validator = "0.1.0"
 ```
 
 ### Basic Library Usage
 
 ```rust
-use nacm_rust_prototype::{AccessRequest, NacmConfig, Operation, RequestContext, ValidationResult};
+use nacm_validator::{AccessRequest, NacmConfig, Operation, RequestContext, ValidationResult};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load NACM configuration from XML
@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Validate the data request
     let result = config.validate(&data_request);
     println!("Data access {}: {}", 
-             if result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
+             if result.effect == nacm_validator::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
              if result.should_log { "[LOGGED]" } else { "" });
     
     // Create a command access request (Tail-f extension)
@@ -248,7 +248,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Validate the command request
     let cmd_result = config.validate(&command_request);
     println!("Command access {}: {}", 
-             if cmd_result.effect == nacm_rust_prototype::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
+             if cmd_result.effect == nacm_validator::RuleEffect::Permit { "PERMITTED" } else { "DENIED" },
              if cmd_result.should_log { "[LOGGED]" } else { "" });
     
     Ok(())
@@ -488,7 +488,7 @@ Add new examples in the `examples/` directory:
 
 ```rust
 // examples/my_example.rs
-use nacm_rust_prototype::*;
+use nacm_validator::*;
 
 fn main() {
     // Your example code

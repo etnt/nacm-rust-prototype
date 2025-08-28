@@ -1,4 +1,4 @@
-use nacm_rust_prototype::{AccessRequest, NacmConfig, Operation, RuleEffect, RequestContext};
+use nacm_validator::{AccessRequest, NacmConfig, Operation, RuleEffect, RequestContext};
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
