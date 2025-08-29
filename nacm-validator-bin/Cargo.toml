@@ -8,7 +8,7 @@ description = "CLI for NACM (Network Access Control Model) validator with Tail-f
 readme = "../README.md"
 homepage = "https://github.com/etnt/nacm-validator"
 repository = "https://github.com/etnt/nacm-validator"
-keywords = ["nacm", "netconf", "access-control", "network", "yang", "validator", "cli"]
+keywords = ["nacm", "netconf", "access-control", "cli", "validator"]
 categories = ["network-programming", "authentication", "command-line-utilities"]
 rust-version = "1.70"
 
@@ -18,7 +18,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-nacm-validator = { path = "../nacm-validator-lib" }
+nacm-validator = "0.1"
 clap = { version = "4.4", features = ["derive", "color"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
