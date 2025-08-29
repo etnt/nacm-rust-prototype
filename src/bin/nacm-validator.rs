@@ -38,7 +38,7 @@
 //! - **2**: Error (invalid config, missing file, etc.)
 
 use clap::{Parser, ValueEnum};
-use nacm_validator::{AccessRequest, NacmConfig, Operation, RuleEffect};
+use nacm_validator::{AccessRequest, NacmConfig, Operation, RuleEffect, RequestContext};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process;
@@ -98,6 +98,20 @@ struct Cli {
     /// Supports simple wildcard patterns like "/interfaces/*".
     #[arg(short, long)]
     path: Option<String>,
+
+    /// Request context (optional)
+    /// 
+    /// The management interface or context from which the request originates.
+    /// Used for Tail-f ACM context-aware access control.
+    #[arg(short = 'x', long)]
+    context: Option<ContextArg>,
+
+    /// Command (optional)
+    /// 
+    /// Command being executed (for command-based access control).
+    /// Used with Tail-f ACM command rules for CLI and WebUI access.
+    #[arg(short = 'C', long)]
+    command: Option<String>,
 
     /// Output format
     /// 
@@ -162,6 +176,35 @@ impl From<OperationArg> for Operation {
     }
 }
 
+/// Command-line context argument wrapper
+/// 
+/// This enum wraps our library's `RequestContext` enum to work with clap's
+/// argument parsing. Similar to `OperationArg`, this allows CLI parsing
+/// without making the library depend on clap.
+#[derive(Clone, ValueEnum)]
+enum ContextArg {
+    /// NETCONF protocol access
+    Netconf,
+    /// Command-line interface access
+    Cli,
+    /// Web-based user interface access
+    Webui,
+}
+
+/// Convert CLI context argument to library context type
+/// 
+/// This `From` trait implementation allows automatic conversion between
+/// the CLI enum and the library enum.
+impl From<ContextArg> for nacm_validator::RequestContext {
+    fn from(ctx: ContextArg) -> Self {
+        match ctx {
+            ContextArg::Netconf => nacm_validator::RequestContext::NETCONF,
+            ContextArg::Cli => nacm_validator::RequestContext::CLI,
+            ContextArg::Webui => nacm_validator::RequestContext::WebUI,
+        }
+    }
+}
+
 /// Output format options for results
 /// 
 /// Controls how validation results are displayed to the user.
@@ -190,7 +233,9 @@ enum OutputFormat {
 ///   "user": "alice",
 ///   "module": "ietf-interfaces", 
 ///   "operation": "read",
-///   "path": "/interfaces/interface[name='eth0']"
+///   "path": "/interfaces/interface[name='eth0']",
+///   "context": "netconf",
+///   "command": "show status"
 /// }
 /// ```
 #[derive(Serialize, Deserialize)]
@@ -205,6 +250,10 @@ struct JsonRequest {
     operation: String,
     /// XPath or data path (optional)
     path: Option<String>,
+    /// Request context as string ("netconf", "cli", "webui") (optional)
+    context: Option<String>,
+    /// Command being executed (optional)
+    command: Option<String>,
 }
 
 /// JSON response structure for results
@@ -221,8 +270,14 @@ struct JsonResult {
     rpc: Option<String>,
     operation: String,
     path: Option<String>,
+    /// Request context ("netconf", "cli", "webui")
+    context: Option<String>,
+    /// Command being executed
+    command: Option<String>,
     /// Indicates whether the configuration was loaded successfully
     config_loaded: bool,
+    /// Whether this decision should be logged (Tail-f ACM extension)
+    should_log: bool,
 }
 
 /// Main entry point for the NACM validator CLI tool
@@ -348,6 +403,9 @@ fn handle_single_request(config: &NacmConfig, cli: &Cli, user: &str, operation: 
     // This conversion is infallible (never panics) due to the From impl
     let operation = operation.clone().into();
     
+    // Convert CLI context argument to library context type (if provided)
+    let context = cli.context.as_ref().map(|ctx| ctx.clone().into());
+    
     // Build the access request from command-line arguments
     // Uses borrowed string slices for efficiency (no copying)
     let request = AccessRequest {
@@ -356,15 +414,15 @@ fn handle_single_request(config: &NacmConfig, cli: &Cli, user: &str, operation: 
         rpc_name: cli.rpc.as_deref(),
         operation,
         path: cli.path.as_deref(),
-        context: None, // For CLI tool, we don't specify context unless needed
-        command: None, // This is for data access, not command access
+        context: context.as_ref(), // Convert Option<RequestContext> to Option<&RequestContext>
+        command: cli.command.as_deref(), // Convert Option<String> to Option<&str>
     };
 
     // Perform the actual NACM validation using our library
     let result = config.validate(&request);
     
     // Output results in the requested format
-    output_result(&result.effect, &request, config, &cli.format, cli.verbose);
+    output_result(&result, &request, config, &cli.format, cli.verbose);
     
     // Set exit code based on access decision
     // This is crucial for shell script integration
@@ -426,6 +484,22 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
                             }
                         };
                         
+                        // Parse the context string into our RequestContext enum (if provided)
+                        let context = match &json_req.context {
+                            Some(ctx_str) => {
+                                match ctx_str.to_lowercase().as_str() {
+                                    "netconf" => Some(RequestContext::NETCONF),
+                                    "cli" => Some(RequestContext::CLI),
+                                    "webui" => Some(RequestContext::WebUI),
+                                    _ => {
+                                        eprintln!("Invalid context '{}': must be 'netconf', 'cli', or 'webui'", ctx_str);
+                                        continue; // Skip this request and continue with next
+                                    }
+                                }
+                            }
+                            None => None,
+                        };
+                        
                         // Build the access request from JSON data
                         let request = AccessRequest {
                             user: &json_req.user,
@@ -433,8 +507,8 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
                             rpc_name: json_req.rpc.as_deref(),
                             operation,
                             path: json_req.path.as_deref(),
-                            context: None, // JSON requests don't specify context
-                            command: None, // This is for data access validation
+                            context: context.as_ref(), // Convert Option<RequestContext> to Option<&RequestContext>
+                            command: json_req.command.as_deref(), // Convert Option<String> to Option<&str>
                         };
 
                         // Validate the request using NACM
@@ -451,7 +525,10 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
                             rpc: json_req.rpc,
                             operation: json_req.operation,
                             path: json_req.path,
+                            context: json_req.context,
+                            command: json_req.command,
                             config_loaded: true,
+                            should_log: result.should_log,
                         };
                         
                         // Output result as compact JSON (one per line)
@@ -482,10 +559,12 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
 /// 
 /// **Text Format** (default):
 /// ```
-/// Decision: PERMIT
+/// Decision: PERMIT [LOGGED]
 /// User: admin
 /// Operation: read
 /// Module: example-module
+/// Context: cli
+/// Command: show status
 /// ```
 /// 
 /// **JSON Format**:
@@ -494,7 +573,10 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
 ///   "decision": "permit", 
 ///   "user": "admin",
 ///   "operation": "read",
-///   "module": "example-module"
+///   "module": "example-module",
+///   "context": "cli",
+///   "command": "show status",
+///   "should_log": true
 /// }
 /// ```
 /// 
@@ -507,13 +589,13 @@ fn handle_json_input(config: &NacmConfig, _cli: &Cli) {
 /// 
 /// ## Parameters
 /// 
-/// * `result` - The access decision (Permit or Deny)
+/// * `result` - The validation result with access decision and logging flag
 /// * `request` - Original access request details
 /// * `config` - NACM configuration (for verbose output)
 /// * `format` - Output format selection
 /// * `verbose` - Whether to include additional details
 fn output_result(
-    result: &RuleEffect,
+    result: &nacm_validator::ValidationResult,
     request: &AccessRequest,
     _config: &NacmConfig,
     format: &OutputFormat,
@@ -522,10 +604,12 @@ fn output_result(
     match format {
         OutputFormat::Text => {
             // Human-readable text output
-            let decision = match result {
+            let decision = match result.effect {
                 RuleEffect::Permit => "PERMIT",
                 RuleEffect::Deny => "DENY",
             };
+            
+            let log_indicator = if result.should_log { " [LOGGED]" } else { "" };
             
             // In verbose mode, show detailed request information
             if verbose {
@@ -540,16 +624,22 @@ fn output_result(
                 if let Some(path) = request.path {
                     println!("Path: {}", path);
                 }
-                println!("Decision: {}", decision);
+                if let Some(context) = request.context {
+                    println!("Context: {:?}", context);
+                }
+                if let Some(command) = request.command {
+                    println!("Command: {}", command);
+                }
+                println!("Decision: {}{}", decision, log_indicator);
             } else {
-                // Simple mode: just show the decision
-                println!("{}", decision);
+                // Simple mode: show decision with log indicator
+                println!("{}{}", decision, log_indicator);
             }
         }
         OutputFormat::Json => {
             // Structured JSON output for programmatic consumption
             let json_result = JsonResult {
-                decision: match result {
+                decision: match result.effect {
                     RuleEffect::Permit => "permit".to_string(),
                     RuleEffect::Deny => "deny".to_string(),
                 },
@@ -558,7 +648,10 @@ fn output_result(
                 rpc: request.rpc_name.map(|s| s.to_string()),
                 operation: format!("{:?}", request.operation).to_lowercase(),
                 path: request.path.map(|s| s.to_string()),
+                context: request.context.map(|ctx| format!("{:?}", ctx).to_lowercase()),
+                command: request.command.map(|s| s.to_string()),
                 config_loaded: true,
+                should_log: result.should_log,
             };
             
             // Pretty-print JSON for readability

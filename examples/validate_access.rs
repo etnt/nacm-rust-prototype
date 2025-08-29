@@ -23,10 +23,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- Groups: {:?}", config.groups.keys().collect::<Vec<_>>());
     println!("- Rule lists: {}", config.rule_lists.len());
     
-    // Test different access scenarios
+    // Test different access scenarios including Tail-f ACM features
     let netconf_context = RequestContext::NETCONF;
+    let cli_context = RequestContext::CLI;
+    let webui_context = RequestContext::WebUI;
+    
     let test_cases = vec![
-        ("Admin executing edit-config", AccessRequest {
+        ("Admin executing edit-config (NETCONF)", AccessRequest {
             user: "admin",
             module_name: None,
             rpc_name: Some("edit-config"),
@@ -35,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             context: Some(&netconf_context),
             command: None,
         }),
-        ("Oper executing edit-config", AccessRequest {
+        ("Oper executing edit-config (NETCONF)", AccessRequest {
             user: "oper",
             module_name: None,
             rpc_name: Some("edit-config"),
@@ -44,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             context: Some(&netconf_context),
             command: None,
         }),
-        ("Oper modifying NACM config", AccessRequest {
+        ("Oper modifying NACM config (NETCONF)", AccessRequest {
             user: "oper",
             module_name: Some("ietf-netconf-acm"),
             rpc_name: None,
@@ -53,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             context: Some(&netconf_context),
             command: None,
         }),
-        ("Guest reading example/misc/data", AccessRequest {
+        ("Guest reading example/misc/data (NETCONF)", AccessRequest {
             user: "Guest",
             module_name: Some("example"),
             rpc_name: None,
@@ -62,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             context: Some(&netconf_context),
             command: None,
         }),
-        ("Guest creating example/misc", AccessRequest {
+        ("Guest creating example/misc (NETCONF)", AccessRequest {
             user: "Guest",
             module_name: Some("example"),
             rpc_name: None,
@@ -71,13 +74,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             context: Some(&netconf_context),
             command: None,
         }),
-        ("Unknown user reading data", AccessRequest {
+        ("Unknown user reading data (NETCONF)", AccessRequest {
             user: "unknown",
             module_name: Some("test"),
             rpc_name: None,
             operation: Operation::Read,
             path: Some("/data"),
             context: Some(&netconf_context),
+            command: None,
+        }),
+        // Additional test cases for context awareness
+        ("Admin via CLI (no command - should use data rules)", AccessRequest {
+            user: "admin",
+            module_name: Some("ietf-interfaces"),
+            rpc_name: None,
+            operation: Operation::Read,
+            path: Some("/interfaces"),
+            context: Some(&cli_context),
+            command: None,
+        }),
+        ("Admin via WebUI (no command - should use data rules)", AccessRequest {
+            user: "admin",
+            module_name: Some("ietf-interfaces"),
+            rpc_name: None,
+            operation: Operation::Read,
+            path: Some("/interfaces"),
+            context: Some(&webui_context),
             command: None,
         }),
     ];
