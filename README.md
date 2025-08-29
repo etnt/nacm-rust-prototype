@@ -1,6 +1,7 @@
 # NACM Validator
 
 [![Crates.io](https://img.shields.io/crates/v/nacm-validator.svg)](https://crates.io/crates/nacm-validator)
+[![Crates.io](https://img.shields.io/crates/v/nacm-validator-cli.svg?label=CLI)](https://crates.io/crates/nacm-validator-cli)
 [![Documentation](https://docs.rs/nacm-validator/badge.svg)](https://docs.rs/nacm-validator)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
@@ -12,18 +13,23 @@ The NACM Validator provides both a **library** (`nacm-validator`) for developers
 
 ### Installing the CLI Tool
 
-The CLI tool is not yet published to crates.io as a separate package. Install from source:
+The CLI tool is now published to crates.io! Install it with:
+
+```bash
+cargo install nacm-validator-cli
+```
+
+This will install the `nacm-validator` binary to `~/.cargo/bin/` (make sure it's in your PATH).
+
+Alternatively, you can install from source:
 
 ```bash
 # Clone the repository
 git clone https://github.com/etnt/nacm-validator.git
 cd nacm-validator
 
-# Install the CLI tool globally
+# Install the CLI tool globally from source
 cargo install --path nacm-validator-bin
-
-# This installs the 'nacm-validator' binary to ~/.cargo/bin/
-# Make sure ~/.cargo/bin is in your PATH
 ```
 
 After installation, you can run the tool from anywhere:
