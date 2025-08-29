@@ -96,10 +96,11 @@ cargo build --release
 
 # Test data access (standard NACM)
 ./target/release/nacm-validator \
-    --config nacm-validator-lib/examples/data/aaa_ncm_init.xml \
+    --config nacm-validator-lib/examples/data/aaa_ncm_init_secure.xml \
     --user admin \
     --operation exec \
-    --rpc edit-config
+    --rpc edit-config \
+    --context netconf
 # Output: PERMIT
 
 # Test with denied user  
@@ -107,7 +108,8 @@ cargo build --release
     --config nacm-validator-lib/examples/data/aaa_ncm_init_secure.xml \
     --user unknown \
     --operation exec \
-    --rpc edit-config  
+    --rpc edit-config \
+    --context netconf
 # Output: DENY (exit code 1)
 ```
 
