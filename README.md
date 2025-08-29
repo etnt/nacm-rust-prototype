@@ -1,14 +1,18 @@
 # NACM Validator
 
+[![Crates.io](https://img.shields.io/crates/v/nacm-validator.svg)](https://crates.io/crates/nacm-validator)
+[![Documentation](https://docs.rs/nacm-validator/badge.svg)](https://docs.rs/nacm-validator)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 A Rust implementation of **NACM** (Network Access Control Model) validator as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for [Tail-f ACM extensions](doc/rfc-tailf-acm-proposal.md) for command-based access control. This library and CLI tool demonstrate parsing real NACM XML configurations and validating access requests against defined rules.
 
 ## Installation
 
 The NACM Validator provides both a **library** (`nacm-validator`) for developers and a **command-line tool** (`nacm-validator`) for end users.
 
-### Installing from Source (Recommended)
+### Installing the CLI Tool
 
-Since the crates are not yet published to crates.io, install from source:
+The CLI tool is not yet published to crates.io as a separate package. Install from source:
 
 ```bash
 # Clone the repository
@@ -30,15 +34,22 @@ nacm-validator --help
 
 ### Using the Library
 
-To use the validator library in your own Rust project, add it as a dependency in your `Cargo.toml`:
+To use the validator library in your own Rust project, add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# Once published to crates.io:
-# nacm-validator = "0.1"
+nacm-validator = "0.1"
+```
 
-# For now, use the git dependency:
-nacm-validator = { git = "https://github.com/etnt/nacm-validator.git", package = "nacm-validator" }
+You can also use the git dependency for the latest development version:
+
+```toml
+[dependencies]
+# For the latest published version (recommended):
+nacm-validator = "0.1"
+
+# Or for the latest development version:
+# nacm-validator = { git = "https://github.com/etnt/nacm-validator.git", package = "nacm-validator" }
 ```
 
 Then import the library in your Rust code:
