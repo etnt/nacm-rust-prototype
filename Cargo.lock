@@ -137,7 +137,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nacm-validator-bin"
+name = "nacm-validator-cli"
 version = "0.1.0"
 dependencies = [
  "clap",

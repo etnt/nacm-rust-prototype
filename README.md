@@ -2,41 +2,103 @@
 
 A Rust implementation of **NACM** (Network Access Control Model) validator as defined in [RFC 8341](https://tools.ietf.org/rfc/rfc8341.txt), with support for [Tail-f ACM extensions](doc/rfc-tailf-acm-proposal.md) for command-based access control. This library and CLI tool demonstrate parsing real NACM XML configurations and validating access requests against defined rules.
 
-## 🚀 Quick Start
+## Installation
+
+The NACM Validator provides both a **library** (`nacm-validator`) for developers and a **command-line tool** (`nacm-validator`) for end users.
+
+### Installing from Source (Recommended)
+
+Since the crates are not yet published to crates.io, install from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/etnt/nacm-validator.git
+cd nacm-validator
+
+# Install the CLI tool globally
+cargo install --path nacm-validator-bin
+
+# This installs the 'nacm-validator' binary to ~/.cargo/bin/
+# Make sure ~/.cargo/bin is in your PATH
+```
+
+After installation, you can run the tool from anywhere:
+
+```bash
+nacm-validator --help
+```
+
+### Using the Library
+
+To use the validator library in your own Rust project, add it as a dependency in your `Cargo.toml`:
+
+```toml
+[dependencies]
+# Once published to crates.io:
+# nacm-validator = "0.1"
+
+# For now, use the git dependency:
+nacm-validator = { git = "https://github.com/etnt/nacm-validator.git", package = "nacm-validator" }
+```
+
+Then import the library in your Rust code:
+
+```rust
+use nacm_validator::{NacmConfig, AccessRequest, Operation, RequestContext};
+```
+
+### Development Setup
+
+If you want to develop or contribute to the project:
+
+```bash
+# Clone the repository
+git clone https://github.com/etnt/nacm-validator.git
+cd nacm-validator
+
+# Build the workspace (both library and CLI)
+cargo build
+
+# Run tests
+cargo test
+
+# Build documentation
+cargo doc --open
+
+# Run examples
+cargo run --example tailf_acm_demo
+```
+
+## Quick Start
 
 ### CLI Tool - Traditional NACM
-```bash
-# Build the CLI tool
-cargo build --release
 
-### CLI Tool - Traditional NACM
 ```bash
-# Build the CLI tool
+# Build the CLI tool (if developing from source)
 cargo build --release
 
 # Test data access (standard NACM)
-./target/release/nacm-validator 
-    --config examples/data/aaa_ncm_init.xml 
-    --user admin 
-    --operation exec 
+./target/release/nacm-validator \
+    --config nacm-validator-lib/examples/data/aaa_ncm_init.xml \
+    --user admin \
+    --operation exec \
     --rpc edit-config
 # Output: PERMIT
 
 # Test with denied user  
-./target/release/nacm-validator 
-    --config examples/data/aaa_ncm_init_secure.xml 
-    --user unknown 
-    --operation exec 
+./target/release/nacm-validator \
+    --config nacm-validator-lib/examples/data/aaa_ncm_init_secure.xml \
+    --user unknown \
+    --operation exec \
     --rpc edit-config  
 # Output: DENY (exit code 1)
-```
 ```
 
 ### CLI Tool - Tail-f ACM Extensions
 ```bash
 # Test command-based access control
 ./target/release/nacm-validator \
-    --config examples/data/tailf_acm_example.xml \
+    --config nacm-validator-lib/examples/data/tailf_acm_example.xml \
     --user alice \
     --operation read \
     --context cli \
@@ -45,7 +107,7 @@ cargo build --release
 
 # Test context-aware access
 ./target/release/nacm-validator \
-    --config examples/data/tailf_acm_example.xml \
+    --config nacm-validator-lib/examples/data/tailf_acm_example.xml \
     --user alice \
     --operation read \
     --context netconf \
@@ -56,7 +118,7 @@ cargo build --release
 # JSON batch processing with enhanced fields
 echo '{"user":"alice","operation":"read","context":"cli","command":"show status"}' | \
     ./target/release/nacm-validator \
-    --config examples/data/tailf_acm_example.xml \
+    --config nacm-validator-lib/examples/data/tailf_acm_example.xml \
     --json-input
 # Output: {"decision":"permit","user":"alice","context":"cli","command":"show status","should_log":true,...}
 ```
@@ -89,11 +151,11 @@ println!("Access {}: {}",
 # Comprehensive feature demonstration
 cargo run --example tailf_acm_comprehensive_demo
 
-# Interactive shell examples
-./examples/bash_examples.sh
+# Interactive shell examples  
+cd nacm-validator-bin/examples && bash bash_examples.sh
 
 # JSON batch processing
-./examples/json_batch_example.sh
+cd nacm-validator-bin/examples && bash json_batch_example.sh
 ```
 
 ## 🚀 Features
@@ -804,10 +866,10 @@ cargo run --example tailf_acm_comprehensive_demo
 
 ```bash
 # Interactive bash integration examples with Tail-f ACM
-./examples/bash_examples.sh
+cd nacm-validator-bin/examples && bash bash_examples.sh
 
 # JSON batch processing with enhanced fields
-./examples/json_batch_example.sh
+cd nacm-validator-bin/examples && bash json_batch_example.sh
 ```
 
 #### Example Outputs

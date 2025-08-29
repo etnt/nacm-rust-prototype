@@ -8,8 +8,8 @@ cd ../../ && cargo build --release && cd nacm-validator-bin/examples
 
 # Set the path to the binary
 NACM_VALIDATOR="../../target/release/nacm-validator"
-CONFIG_FILE="data/tailf_acm_example.xml"
-STANDARD_CONFIG="data/aaa_ncm_init.xml"
+CONFIG_FILE="../../nacm-validator-lib/examples/data/tailf_acm_example.xml"
+STANDARD_CONFIG="../../nacm-validator-lib/examples/data/aaa_ncm_init.xml"
 
 echo "=== Basic NACM Validation Examples ==="
 
