@@ -4,12 +4,12 @@
 
 # Build the CLI tool first
 echo "Building NACM validator..."
-cargo build --bin nacm-validator --release
+cd ../../ && cargo build --release && cd nacm-validator-bin/examples
 
 # Set the path to the binary
-NACM_VALIDATOR="./target/release/nacm-validator"
-CONFIG_FILE="examples/data/tailf_acm_example.xml"
-STANDARD_CONFIG="examples/data/aaa_ncm_init.xml"
+NACM_VALIDATOR="../../target/release/nacm-validator"
+CONFIG_FILE="data/tailf_acm_example.xml"
+STANDARD_CONFIG="data/aaa_ncm_init.xml"
 
 echo "=== Basic NACM Validation Examples ==="
 

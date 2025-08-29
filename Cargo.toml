@@ -1,33 +1,6 @@
-[package]
-name = "nacm-validator"
-version = "0.1.0"
-edition = "2021"
-authors = ["T. Tornkvist <kruskakli@gmail.com>"]
-license = "MPL-2.0"
-description = "NACM (Network Access Control Model) validator with Tail-f ACM extensions"
-readme = "README.md"
-homepage = "https://github.com/etnt/nacm-validator"
-repository = "https://github.com/etnt/nacm-validator"
-documentation = "https://docs.rs/nacm-validator"
-keywords = ["nacm", "netconf", "access-control", "network", "yang", "validator"]
-categories = ["network-programming", "authentication", "config"]
-rust-version = "1.70"
-exclude = [
-    "examples/data/*",
-    "doc/*",
-    ".git*",
+[workspace]
+members = [
+    "nacm-validator-lib",
+    "nacm-validator-bin",
 ]
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde-xml-rs = "0.6"
-clap = { version = "4.0", features = ["derive"] }
-serde_json = "1.0"
-
-[[example]]
-name = "validate_access"
-path = "examples/validate_access.rs"
-
-[[bin]]
-name = "nacm-validator"
-path = "src/bin/nacm-validator.rs"
+resolver = "2"

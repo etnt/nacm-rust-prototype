@@ -6,11 +6,11 @@ echo "=== JSON Batch Processing Example with Tail-f ACM ==="
 
 # Build the CLI tool
 echo "Building NACM validator..."
-cargo build --bin nacm-validator --release --quiet
+cd ../../ && cargo build --release --quiet && cd nacm-validator-bin/examples
 
-NACM_VALIDATOR="./target/release/nacm-validator"
-CONFIG_FILE="examples/data/tailf_acm_example.xml"
-STANDARD_CONFIG="examples/data/aaa_ncm_init.xml"
+NACM_VALIDATOR="../../target/release/nacm-validator"
+CONFIG_FILE="data/tailf_acm_example.xml"
+STANDARD_CONFIG="data/aaa_ncm_init.xml"
 
 # Create a JSON file with multiple requests including Tail-f ACM features
 cat > /tmp/nacm_requests.json << 'EOF'
